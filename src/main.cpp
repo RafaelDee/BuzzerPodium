@@ -28,7 +28,7 @@
 Battery battery = Battery(3100, 4170, SENSE_PIN);
 uint16_t averageBattVoltage = 0;
 uint8_t averageBattLevel = 0;
-#define LED_COLS 110
+#define LED_COLS 11
 #define LED_ROWS 2
 int ledMap[LED_ROWS][LED_COLS] = {
     {16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6},
