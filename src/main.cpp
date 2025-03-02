@@ -25,7 +25,8 @@
 #define SENSE_PIN A0
 #define COUNT_FACE_LED 22
 #define COUNT_BTN_LED 3
-Battery battery = Battery(3100, 4170, SENSE_PIN);
+
+Battery battery = Battery(3150, 4170, SENSE_PIN);
 uint16_t averageBattVoltage = 0;
 uint8_t averageBattLevel = 0;
 #define LED_COLS 11
@@ -48,9 +49,9 @@ enum LEDState
 };
 // 3c:8a:1f:0b:aa:14
 
-//uint8_t broadcastAddress[] = {0x3C, 0x8A, 0x1F, 0x0B, 0xAA, 0x14};
+uint8_t broadcastAddress[] = {0x3C, 0x8A, 0x1F, 0x0B, 0xAA, 0x14};
 //08:D1:F9:99:22:58
-uint8_t broadcastAddress[] = {0x08, 0xD1, 0xF9, 0x99, 0x22, 0x58};
+//uint8_t broadcastAddress[] = {0x08, 0xD1, 0xF9, 0x99, 0x22, 0x58};
 Button buzzerBtn(PIN_BTN_SW);
 CRGB ledsFace[COUNT_FACE_LED];
 CRGB ledsButton[COUNT_BTN_LED];
@@ -198,7 +199,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len)
     setCustomColor(networking.receivePacket<CustomColorPacket>(mac, incomingData, len));
     return;
 
-  case serverPacketType::LedBrightness:
+  case serverPacketType::LedBrightness :
     LedBrightnessPacket brght = networking.receivePacket<LedBrightnessPacket>(mac, incomingData, len);
     fceBrightness = brght.fceBright;
     btnBrightness = brght.btnBright;
@@ -353,25 +354,28 @@ void suspenseSlide()
   // unsigned long relativeMilis = millis() - startMilis;
   if (!Clock::TimePassed(lastTick, 10, true))
     return;
-  keyframe = beatsin8(120, 0, LED_COLS - 1, startMilis); // Pulse with a sine wave
+  keyframe = beatsin8(60, 0, LED_COLS - 1, startMilis,7); // Pulse with a sine wave
+  uint8_t brightnessFce = beatsin8(120, 0, 255, startMilis,0); // Pulse with a sine wave
   /* if (LED_COLS <= keyframe)
   {
     keyframe = 0;
   } */
+ 
   for (int r = 0; r < LED_ROWS; r++)
   {
-    int ledIndex = ledMap[r][keyframe];
+    int ledIndex = ledMap[r][keyframe]; 
     if (ledIndex == -1)
       continue;
     ledsFace[ledIndex] = standByColor;
+    fadeToBlackBy(&ledsFace[ledIndex], 1, brightnessFce);
   }
-  uint8_t brightness = beatsin8(160, 0, 255); // Pulse with a sine wave
+  uint8_t brightness = beatsin8(60, 0, 255); // Pulse with a sine wave
   for (int i = 0; i < COUNT_BTN_LED; i++)
   {
     ledsButton[i] = standByColor;
   }
   fadeToBlackBy(ledsButton, COUNT_BTN_LED, brightness);
-  fadeToBlackBy(ledsFace, COUNT_FACE_LED, 40);
+  fadeToBlackBy(ledsFace, COUNT_FACE_LED, 20);
 }
 float easeInOut(float t)
 {
@@ -513,7 +517,7 @@ bool setLightsOFF(bool faceplate, bool button, unsigned long durationMs = 1000, 
   return false;
 }
 
-void flashing(CRGB color = CRGB::Black)
+void flashing(CRGB color = CRGB::Black,unsigned long flashingDuration = 1000)
 {
   static unsigned long lastLedStateTime = 0;
   static unsigned long lastTickTime = 0;
@@ -525,7 +529,6 @@ void flashing(CRGB color = CRGB::Black)
     lastTickTime = millis();
     resetAnimation = false;
   }
-  static unsigned long flashingDuration = 1000;
   if (!Clock::TimePassed(lastTickTime, 100, true))
     return;
   if (Clock::TimePassed(lastLedStateTime, flashingDuration))
@@ -651,10 +654,10 @@ void RenderLights()
     setAllLights(standByColor, true, true, 500);
     break;
   case CorrectAnswer:
-    flashing(CRGB::Green);
+    flashing(CRGB::Green,700);
     break;
   case WrongAnswer:
-    flashing(CRGB::Red);
+    flashing(CRGB::Red,700);
     break;
   case SuspenseAnswer:
     suspenseSlide();
