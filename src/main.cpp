@@ -48,10 +48,10 @@ enum LEDState
   CustomColorLight
 };
 // 3c:8a:1f:0b:aa:14
-
+bool serialMode = false;
 uint8_t broadcastAddress[] = {0x3C, 0x8A, 0x1F, 0x0B, 0xAA, 0x14};
-//08:D1:F9:99:22:58
-//uint8_t broadcastAddress[] = {0x08, 0xD1, 0xF9, 0x99, 0x22, 0x58};
+// 08:D1:F9:99:22:58
+// uint8_t broadcastAddress[] = {0x08, 0xD1, 0xF9, 0x99, 0x22, 0x58};
 Button buzzerBtn(PIN_BTN_SW);
 CRGB ledsFace[COUNT_FACE_LED];
 CRGB ledsButton[COUNT_BTN_LED];
@@ -62,8 +62,10 @@ CRGB customFceColor = standByColor;
 CRGB customBtnColor = standByColor;
 // Create a struct_message called myData
 uint8_t podiumPos;
-uint8_t fceBrightness = 255;
-uint8_t btnBrightness = 255;
+uint8_t fceBrightness = 5;
+uint8_t btnBrightness = 5;
+
+Networking networking = Networking();
 // unsigned long lastTime = 0;
 // unsigned long timerDelay = 2000; // send readings timer
 bool initialized = false;
@@ -81,14 +83,15 @@ int ledIndex(int targetIndex, int ledCount)
 // Callback when data is sent
 void OnDataSent(uint8_t *mac_addr, uint8_t sendStatus)
 {
+  // networking.sentPacket = true;
   /* Serial.print("Last Packet Send Status: "); */
-  if (sendStatus == 0)
+  /* if (sendStatus == 0)
   {
     if (!initialized)
       initialized = true;
     // Serial.print("Delivery success pos: ");
     // Serial.println(podiumPos);
-  }
+  } */
   /* else if (!initialized)
     Serial.println("Init fail");
   else
@@ -105,12 +108,18 @@ void setLedState(LEDState state)
   resetAnimation = true;
 }
 
-Networking networking;
 void spotlight(SpotlightPacket spotlightPacket)
 {
   // Serial.print("SPOTLIGHT RECEIVED pos: ");
   // Serial.println(String(spotlightPacket.pos));
-  bool isMe = spotlightPacket.pos == podiumPos;
+  int pos = spotlightPacket.pos;
+  if (isnan(pos) || isnan(podiumPos))
+  {
+    if (serialMode)
+      Serial.println("invalid pos");
+    return;
+  }
+  bool isMe = pos == podiumPos;
   if (isMe)
   {
     setLedState(spotlightPacket.flash ? SpotLightFlash : SpotLight);
@@ -166,19 +175,85 @@ void setCustomColor(CustomColorPacket packet)
   customFceColor = packet.faceColor;
   setLedState(LEDState::CustomColorLight);
 }
+bool brightnessTransition = false;
+void setBrightness(LedBrightnessPacket packet)
+{
+  brightnessTransition = true;
+  if (serialMode)
+  {
+    Serial.print("SETTING B ");
+    Serial.print(packet.fceBright);
+    Serial.print(":");
+    Serial.println(packet.btnBright);
+  }
+
+  fceBrightness = packet.fceBright;
+  btnBrightness = packet.btnBright;
+}
 // Callback when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len)
 {
   serverPacketType type = networking.getPacketType<serverPacketType>(incomingData);
-  switch (type)
+  if (serialMode)
+  {
+    Serial.println("REC: DATA");
+
+    Serial.print("TYPE: ");
+    Serial.println(type);
+  }
+  if (type == serverPacketType::Spotlight)
+  {
+    spotlight(networking.receivePacket<SpotlightPacket>(mac, incomingData, len));
+    return;
+  }
+  if (type == serverPacketType::Initialize)
+  {
+    initialize(networking.receivePacket<InitPacket>(mac, incomingData, len));
+    return;
+  }
+  if (type == serverPacketType::BatteryPing)
+  {
+    sendBattStatus();
+    return;
+  }
+  if (type == serverPacketType::ResetState)
+  {
+    resetState();
+    return;
+  }
+  if (type == serverPacketType::CorrectAns)
+  {
+    setLedState(CorrectAnswer);
+    return;
+  }
+  if (type == serverPacketType::WrongAns)
+  {
+    setLedState(WrongAnswer);
+    return;
+  }
+  if (type == serverPacketType::Suspense)
+  {
+    setLedState(SuspenseAnswer);
+    return;
+  }
+  if (type == serverPacketType::CustomColor)
+  {
+    setCustomColor(networking.receivePacket<CustomColorPacket>(mac, incomingData, len));
+    return;
+  }
+  if (type == serverPacketType::LedBrightness)
+  {
+    setBrightness(networking.receivePacket<LedBrightnessPacket>(mac, incomingData, len));
+    return;
+  }
+  /* switch (type)
   {
   case serverPacketType::Spotlight:
-    spotlight(networking.receivePacket<SpotlightPacket>(mac, incomingData, len));
-    /* code */
+
     break;
   case serverPacketType::Initialize:
-    initialize(networking.receivePacket<InitPacket>(mac, incomingData, len));
-    sendBattStatus();
+
+    // sendBattStatus();
     return;
   case serverPacketType::BatteryPing:
     sendBattStatus();
@@ -193,29 +268,32 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len)
     setLedState(WrongAnswer);
     return;
   case serverPacketType::Suspense:
+    if (serialMode)
+      Serial.println("TRIGGERED SUSPENSE");
     setLedState(SuspenseAnswer);
     return;
   case serverPacketType::CustomColor:
     setCustomColor(networking.receivePacket<CustomColorPacket>(mac, incomingData, len));
     return;
 
-  case serverPacketType::LedBrightness :
-    LedBrightnessPacket brght = networking.receivePacket<LedBrightnessPacket>(mac, incomingData, len);
-    fceBrightness = brght.fceBright;
-    btnBrightness = brght.btnBright;
+  case serverPacketType::LedBrightness:
+    setBrightness(networking.receivePacket<LedBrightnessPacket>(mac, incomingData, len));
     return;
-    /* default:
-      break; */
-  }
+  } */
 }
+
 void setup()
 {
   // Init Serial Monitor
-  // Serial.begin(115200);
+  if (serialMode)
+    Serial.begin(115200);
+  initialized = false;
   battery.begin(1000, 4.2, &sigmoidal);
   // Set device as a Wi-Fi Station
+  WiFi.persistent(true);
   WiFi.mode(WIFI_STA);
-  buzzerBtn.begin();
+  if (!serialMode)
+    buzzerBtn.begin();
   pinMode(PIN_CHRG, INPUT);
   // Init ESP-NOW
   if (esp_now_init() != 0)
@@ -223,17 +301,19 @@ void setup()
     // Serial.println("Error initializing ESP-NOW");
     return;
   }
+  esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
+  esp_now_add_peer(broadcastAddress, ESP_NOW_ROLE_COMBO, 1, NULL, 0);
+  esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(OnDataRecv);
+
   FastLED.addLeds<NEOPIXEL, PIN_FACE_LED>(ledsFace, COUNT_FACE_LED);
   FastLED.addLeds<NEOPIXEL, PIN_BTN_LED>(ledsButton, COUNT_BTN_LED);
 
   // Once ESPNow is successfully Init, we will register for Send CB to
   // get the status of Trasnmitted Packet
-  esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
-  esp_now_register_send_cb(OnDataSent);
 
   // Register peer
-  esp_now_add_peer(broadcastAddress, ESP_NOW_ROLE_COMBO, 1, NULL, 0);
-  esp_now_register_recv_cb(OnDataRecv);
+
   // send an init packet
   // should send infinitely
   // use ondata sent to check if init success
@@ -252,19 +332,19 @@ void setup()
   averageBattLevel = battery.level();
   averageBattVoltage = battery.voltage();
   resetState();
+  if (serialMode)
+    Serial.println("INIT");
 }
 
 void initializeSystem()
 {
 
-  static unsigned long initRetryDuration = 400;
   static unsigned long lastTime = 0;
-  if ((millis() - lastTime) > initRetryDuration)
+  if (Clock::TimePassed(lastTime, 400, true))
   {
     // Set values to send
     // Send message via ESP-NOW
-    networking.sendPacket<InitializationPacket>(broadcastAddress, InitializationPacket(), true);
-    lastTime = millis();
+    networking.sendPacket<InitializationPacket>(broadcastAddress, InitializationPacket());
   }
 }
 void ButtonPressed()
@@ -354,20 +434,20 @@ void suspenseSlide()
   // unsigned long relativeMilis = millis() - startMilis;
   if (!Clock::TimePassed(lastTick, 10, true))
     return;
-  keyframe = beatsin8(60, 0, LED_COLS - 1, startMilis,7); // Pulse with a sine wave
-  uint8_t brightnessFce = beatsin8(120, 0, 255, startMilis,0); // Pulse with a sine wave
+  keyframe = beatsin8(60, 0, LED_COLS - 1, startMilis, 7); // Pulse with a sine wave
+  // uint8_t brightnessFce = beatsin8(120, 0, 255, startMilis, 0); // Pulse with a sine wave
   /* if (LED_COLS <= keyframe)
   {
     keyframe = 0;
   } */
- 
+
   for (int r = 0; r < LED_ROWS; r++)
   {
-    int ledIndex = ledMap[r][keyframe]; 
+    int ledIndex = ledMap[r][keyframe];
     if (ledIndex == -1)
       continue;
     ledsFace[ledIndex] = standByColor;
-    fadeToBlackBy(&ledsFace[ledIndex], 1, brightnessFce);
+    // fadeToBlackBy(&ledsFace[ledIndex], 1, brightnessFce);
   }
   uint8_t brightness = beatsin8(60, 0, 255); // Pulse with a sine wave
   for (int i = 0; i < COUNT_BTN_LED; i++)
@@ -375,7 +455,7 @@ void suspenseSlide()
     ledsButton[i] = standByColor;
   }
   fadeToBlackBy(ledsButton, COUNT_BTN_LED, brightness);
-  fadeToBlackBy(ledsFace, COUNT_FACE_LED, 20);
+  fadeToBlackBy(ledsFace, COUNT_FACE_LED, 30);
 }
 float easeInOut(float t)
 {
@@ -517,32 +597,28 @@ bool setLightsOFF(bool faceplate, bool button, unsigned long durationMs = 1000, 
   return false;
 }
 
-void flashing(CRGB color = CRGB::Black,unsigned long flashingDuration = 1000)
+void flashing(CRGB color = CRGB::Black, unsigned long fDur = 1000)
 {
+  static bool done = false;
   static unsigned long lastLedStateTime = 0;
   static unsigned long lastTickTime = 0;
   static bool isFlashing = false;
   if (resetAnimation)
   {
     isFlashing = false;
+    done = false;
     lastLedStateTime = millis();
     lastTickTime = millis();
     resetAnimation = false;
   }
+  if (done)
+    return;
   if (!Clock::TimePassed(lastTickTime, 100, true))
     return;
-  if (Clock::TimePassed(lastLedStateTime, flashingDuration))
+  if (Clock::TimePassed(lastLedStateTime, fDur))
   {
-    /**TODO:Temp */
-    for (int i = 0; i < COUNT_FACE_LED; i++)
-    {
-      ledsFace[i] = color;
-    }
-    for (int i = 0; i < COUNT_BTN_LED; i++)
-    {
-      ledsButton[i] = color;
-    }
-    return;
+    isFlashing = true;
+    done = true;
   }
 
   if (isFlashing)
@@ -556,7 +632,7 @@ void flashing(CRGB color = CRGB::Black,unsigned long flashingDuration = 1000)
       ledsButton[i] = color;
     }
   }
-  else
+  else if (!done)
   {
     fadeToBlackBy(ledsFace, COUNT_FACE_LED, 150);
     fadeToBlackBy(ledsButton, COUNT_BTN_LED, 150);
@@ -654,10 +730,10 @@ void RenderLights()
     setAllLights(standByColor, true, true, 500);
     break;
   case CorrectAnswer:
-    flashing(CRGB::Green,700);
+    flashing(CRGB::Green, 700);
     break;
   case WrongAnswer:
-    flashing(CRGB::Red,700);
+    flashing(CRGB::Red, 700);
     break;
   case SuspenseAnswer:
     suspenseSlide();
@@ -668,7 +744,7 @@ void RenderLights()
 }
 void loop()
 {
-  if (buzzerBtn.pressed())
+  if (!serialMode && buzzerBtn.pressed())
   {
     ButtonPressed();
   }
@@ -680,9 +756,10 @@ void loop()
   else
   {
     initializeSystem();
+    return;
   }
   static unsigned long lastTick = 0;
-  if (Clock::TimePassed(lastTick, 20, true))
+  if (!serialMode && Clock::TimePassed(lastTick, 20, true))
   {
     bool readChrg = digitalRead(PIN_CHRG);
     if (readChrg != isCharging)
@@ -690,13 +767,34 @@ void loop()
       isCharging = readChrg;
       sendBattStatus();
     }
-    else
-    {
-      isCharging = readChrg;
-    }
   }
-  RenderLights();
-  batteryCheck(false);
-  FastLED.setBrightness(btnBrightness);
-  FastLED.show();
+
+  static unsigned long clockTick = 0;
+  if (Clock::TimePassed(clockTick, 20, true))
+  {
+    RenderLights();
+    batteryCheck(false);
+    if (brightnessTransition)
+    {
+      float currentBrightness = FastLED.getBrightness();
+      float targetBrightness = btnBrightness;
+      
+      // Lerp factor (0.1 = smooth transition, increase for faster transition)
+      float t = 0.1;
+      
+      // If very close to target, snap to it and end transition
+      if (abs(currentBrightness - targetBrightness) < 0.5) {
+        currentBrightness = targetBrightness;
+        brightnessTransition = false;
+      } else {
+        // Linear interpolation
+        currentBrightness = constrain(currentBrightness + (targetBrightness - currentBrightness) * t, 0, 255);
+      }
+      
+      FastLED.setBrightness(currentBrightness);
+        }
+    FastLED.show();
+  }
+
+  delay(1);
 }
