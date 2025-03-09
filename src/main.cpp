@@ -26,7 +26,7 @@
 #define COUNT_FACE_LED 22
 #define COUNT_BTN_LED 3
 
-Battery battery = Battery(3150, 4170, SENSE_PIN);
+Battery battery = Battery(3150, 3900, SENSE_PIN);
 uint16_t averageBattVoltage = 0;
 uint8_t averageBattLevel = 0;
 #define LED_COLS 11
@@ -60,8 +60,7 @@ bool isCharging = false;
 CRGB standByColor = CRGB::Yellow;
 CRGB customFceColor = standByColor;
 CRGB customBtnColor = standByColor;
-// Create a struct_message called myData
-uint8_t podiumPos;
+// Create a struct_message called myData=
 uint8_t fceBrightness = 5;
 uint8_t btnBrightness = 5;
 
@@ -112,17 +111,31 @@ void spotlight(SpotlightPacket spotlightPacket)
 {
   // Serial.print("SPOTLIGHT RECEIVED pos: ");
   // Serial.println(String(spotlightPacket.pos));
-  int pos = spotlightPacket.pos;
-  if (isnan(pos) || isnan(podiumPos))
+  int dir = spotlightPacket.dir;
+  if (isnan(dir))
   {
     if (serialMode)
       Serial.println("invalid pos");
     return;
   }
-  bool isMe = pos == podiumPos;
-  if (isMe)
+  switch (dir)
   {
+  case SpotlightDirection::Self:
     setLedState(spotlightPacket.flash ? SpotLightFlash : SpotLight);
+    break;
+  case SpotlightDirection::Right:
+    setLedState(SpotLightRight);
+    break;
+  case SpotlightDirection::Left:
+    setLedState(SpotLightLeft);
+    break;
+
+  default:
+    break;
+  }
+ /*  if (dir == SpotlightDirection::Self)
+  {
+
     // animate flashing
     return;
   }
@@ -134,7 +147,7 @@ void spotlight(SpotlightPacket spotlightPacket)
   else
   {
     setLedState(SpotLightLeft);
-  }
+  } */
   // turn off brightness after
 }
 void resetState()
@@ -153,18 +166,10 @@ void sendBattStatus()
   networking.sendPacket(broadcastAddress, BatteryStatPacket(averageBattLevel, averageBattVoltage, isCharging));
   // networking.sendPacket(broadcastAddress, BatteryStatPacket(battery.level(), battery.voltage()));
 }
-void batteryCheck(bool checkNow = false)
+void batteryCheck()
 {
 
   // we cant measure voltage while led is on!, gives voltage sag results
-  if (!checkNow)
-  {
-    if (ledState != LEDState::OFF)
-      return;
-    static unsigned long timePassed = 0;
-    if (!Clock::TimePassed(timePassed, 5000, true))
-      return;
-  }
   averageBattLevel = updateExponentialAverage(averageBattLevel, battery.level());
   averageBattVoltage = updateExponentialAverage(averageBattVoltage, battery.voltage());
   sendBattStatus();
@@ -209,6 +214,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len)
   if (type == serverPacketType::Initialize)
   {
     initialize(networking.receivePacket<InitPacket>(mac, incomingData, len));
+    batteryCheck();
     return;
   }
   if (type == serverPacketType::BatteryPing)
@@ -588,7 +594,7 @@ bool setLightsOFF(bool faceplate, bool button, unsigned long durationMs = 1000, 
     if (!battChecked)
     {
       // delay(50);
-      batteryCheck(true);
+      batteryCheck();
       battChecked = true;
     }
     return true;
@@ -657,7 +663,7 @@ void spotLigtOnThenSlide(bool slideLeft)
   {
     if (!battChecked)
     {
-      batteryCheck(true);
+      batteryCheck();
       battChecked = true;
     }
     return;
@@ -698,7 +704,7 @@ void standBy()
     if (!battChecked)
     {
       // FastLED.delay(30);
-      batteryCheck(true);
+      batteryCheck();
       battChecked = true;
     }
     bool doneSp = setAllLights(standByColor, true, true, 500, animStage == 1, true);
@@ -768,31 +774,35 @@ void loop()
       sendBattStatus();
     }
   }
-
+  static unsigned long battTick = 0;
+  if (Clock::TimePassed(battTick, 5000, true) && (ledState == LEDState::OFF))
+    batteryCheck();
   static unsigned long clockTick = 0;
   if (Clock::TimePassed(clockTick, 20, true))
   {
     RenderLights();
-    batteryCheck(false);
     if (brightnessTransition)
     {
       float currentBrightness = FastLED.getBrightness();
       float targetBrightness = btnBrightness;
-      
+
       // Lerp factor (0.1 = smooth transition, increase for faster transition)
       float t = 0.1;
-      
+
       // If very close to target, snap to it and end transition
-      if (abs(currentBrightness - targetBrightness) < 0.5) {
+      if (abs(currentBrightness - targetBrightness) < 0.5)
+      {
         currentBrightness = targetBrightness;
         brightnessTransition = false;
-      } else {
+      }
+      else
+      {
         // Linear interpolation
         currentBrightness = constrain(currentBrightness + (targetBrightness - currentBrightness) * t, 0, 255);
       }
-      
+
       FastLED.setBrightness(currentBrightness);
-        }
+    }
     FastLED.show();
   }
 
