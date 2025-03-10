@@ -133,21 +133,21 @@ void spotlight(SpotlightPacket spotlightPacket)
   default:
     break;
   }
- /*  if (dir == SpotlightDirection::Self)
-  {
+  /*  if (dir == SpotlightDirection::Self)
+   {
 
-    // animate flashing
-    return;
-  }
-  bool toTheRight = spotlightPacket.pos < podiumPos;
-  if (toTheRight)
-  {
-    setLedState(SpotLightRight);
-  }
-  else
-  {
-    setLedState(SpotLightLeft);
-  } */
+     // animate flashing
+     return;
+   }
+   bool toTheRight = spotlightPacket.pos < podiumPos;
+   if (toTheRight)
+   {
+     setLedState(SpotLightRight);
+   }
+   else
+   {
+     setLedState(SpotLightLeft);
+   } */
   // turn off brightness after
 }
 void resetState()
@@ -158,7 +158,6 @@ void initialize(InitPacket initPacket)
 {
   // Serial.print("Received Init Packet:");
   // Serial.println(initPacket.pos);
-  podiumPos = initPacket.pos;
   initialized = true;
 }
 void sendBattStatus()
@@ -344,13 +343,19 @@ void setup()
 
 void initializeSystem()
 {
+  static unsigned long lit = false;
 
   static unsigned long lastTime = 0;
   if (Clock::TimePassed(lastTime, 400, true))
   {
+
     // Set values to send
     // Send message via ESP-NOW
     networking.sendPacket<InitializationPacket>(broadcastAddress, InitializationPacket());
+    
+    ledsFace[0] = lit ? CRGB::White : CRGB::Black;
+    lit = !lit;
+    FastLED.show();
   }
 }
 void ButtonPressed()
